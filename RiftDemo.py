@@ -2,6 +2,7 @@
 from OpenGL.GLU import gluLookAt
 
 from RiftApp import *
+import pygame
 
 def draw_color_cube(size=1.0):
     p = size / 2.0
@@ -60,11 +61,10 @@ class RiftDemo(RiftApp):
           0, 0, 0,
           0, 1, 0)
         self.modelview = glGetFloatv(GL_MODELVIEW_MATRIX)
+        glClearColor(0.1, 0.1, 0.1, 1)
 
     def render_scene(self):
-        glClearColor(0.1, 0.1, 0.1, 1)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-
         draw_color_cube(self.cube_size)
 
 

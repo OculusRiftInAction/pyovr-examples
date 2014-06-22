@@ -1,4 +1,3 @@
-#import OpenGL.GLUT as glut
 import oculusvr as ovr
 import numpy as np
 import time
@@ -6,13 +5,14 @@ import pygame
 from pygame.locals import *
 
 from OpenGL.GL import *
-from OpenGLContext.quaternion import Quaternion 
+from OpenGLContext.quaternion import Quaternion
 from oculusvr import ovrQuatToTuple
 
 class RiftApp():
   def __init__(self):
     ovr.Hmd.initialize()
     self.hmd = ovr.Hmd()
+    self.frame = 0;
     self.hmdDesc = self.hmd.get_desc()
     # Workaround for a race condition bug in the SDK
     time.sleep(0.1)
@@ -52,15 +52,15 @@ class RiftApp():
   def create_window(self):
     import os
     os.environ['SDL_VIDEO_WINDOW_POS'] = "%d,%d" % (
-      self.hmdDesc.WindowsPos.x,self.hmdDesc.WindowsPos.y)
-
+      self.hmdDesc.WindowsPos.x,
+      self.hmdDesc.WindowsPos.y)
     pygame.init()
     pygame.display.set_mode(
       (
         self.hmdDesc.Resolution.w,
         self.hmdDesc.Resolution.h
       ),
-      HWSURFACE|OPENGL|DOUBLEBUF|NOFRAME)
+      HWSURFACE | OPENGL | DOUBLEBUF | NOFRAME)
 
   def init_gl(self):
     self.fbo = glGenFramebuffers(2)
@@ -69,8 +69,9 @@ class RiftApp():
 
     for eye in range(0, 2):
       self.build_framebuffer(eye)
-      tex_id = np.asscalar(self.color[eye]) 
-      tex_id = ctypes.cast(tex_id, ctypes.POINTER(ctypes.c_ulong))
+      tex_id = np.asscalar(self.color[eye])
+      tex_id = ctypes.cast(tex_id,
+        ctypes.POINTER(ctypes.c_ulong))
       self.eyeTextures[eye].TexId = tex_id
 
     rc = ovr.ovrRenderAPIConfig()
@@ -89,55 +90,36 @@ class RiftApp():
     size = self.eyeTextures[eye].TextureSize
 
     # Set up the color attachement texture
-    glBindTexture(
-      GL_TEXTURE_2D, 
-      self.color[eye])
-    glTexParameteri(
-      GL_TEXTURE_2D,
-      GL_TEXTURE_MIN_FILTER,
-      GL_LINEAR);
-    glTexImage2D(
-      GL_TEXTURE_2D, 0, GL_RGBA8,
+    glBindTexture(GL_TEXTURE_2D,self.color[eye])
+    glTexParameteri(GL_TEXTURE_2D,
+      GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
       size.w, size.h, 0, GL_RGB,
       GL_UNSIGNED_BYTE, None);
     glBindTexture(GL_TEXTURE_2D, 0)
 
     # Set up the depth attachment renderbuffer
-    glBindRenderbuffer(
-      GL_RENDERBUFFER,
-      self.depth[eye])
-    glRenderbufferStorage(
-      GL_RENDERBUFFER,
-      GL_DEPTH_COMPONENT,
+    glBindRenderbuffer(GL_RENDERBUFFER, self.depth[eye])
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT,
       size.w, size.h)
-    glBindRenderbuffer(
-      GL_RENDERBUFFER, 0)
+    glBindRenderbuffer(GL_RENDERBUFFER, 0)
 
     # Set up the framebuffer proper
-    glBindFramebuffer(
-      GL_FRAMEBUFFER,
-      self.fbo[eye])
-    glFramebufferTexture2D(
-      GL_FRAMEBUFFER,
-      GL_COLOR_ATTACHMENT0,
-      GL_TEXTURE_2D,
+    glBindFramebuffer(GL_FRAMEBUFFER, self.fbo[eye])
+    glFramebufferTexture2D(GL_FRAMEBUFFER,
+      GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
       self.color[eye], 0);
-    glFramebufferRenderbuffer(
-      GL_FRAMEBUFFER,
-      GL_DEPTH_ATTACHMENT,
-      GL_RENDERBUFFER,
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER,
+      GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
       self.depth[eye])
-
-    fboStatus = glCheckFramebufferStatus(
-      GL_FRAMEBUFFER)
+    fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER)
     if (GL_FRAMEBUFFER_COMPLETE != fboStatus):
       raise Exception("Bad framebuffer setup")
     glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
   def render_frame(self):
-    glClearColor(1, 0, 0, 1);
-    glClear(GL_COLOR_BUFFER_BIT)
-    self.hmd.begin_frame()
+    self.frame += 1 
+    self.hmd.begin_frame(self.frame)
     for i in range(0, 2):
       eye = self.hmdDesc.EyeRenderOrder[i];
 
@@ -148,7 +130,8 @@ class RiftApp():
       glLoadIdentity()
 
       # Apply the per-eye offset
-      eyeOffset = ovr.ovrVec3ToTuple(self.eyeRenderDescs[eye].ViewAdjust)
+      eyeOffset = ovr.ovrVec3ToTuple(
+        self.eyeRenderDescs[eye].ViewAdjust)
       glTranslate(eyeOffset[0], eyeOffset[1], eyeOffset[2])
 
       # Fetch the head pose
@@ -182,7 +165,6 @@ class RiftApp():
     self.create_window()
     self.init_gl()
     running = True
-    frame = 0
     start = ovr.Hmd.get_time_in_seconds()
     last = start
     while running:
@@ -193,11 +175,10 @@ class RiftApp():
           running = False
       self.render_frame()
       pygame.display.flip()
-      frame = frame + 1
       now = ovr.Hmd.get_time_in_seconds()
       if (now - last > 10):
-        interval = now - start 
-        fps = frame / interval
+        interval = now - start
+        fps = self.frame / interval
         print "%f" % fps
         last = now
     self.close()
