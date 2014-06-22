@@ -54,11 +54,10 @@ class RiftDemo(RiftApp):
       RiftApp.init_gl(self)
       glEnable(GL_DEPTH_TEST)
       self.camera = mat4(1.0)
-      self.camera.translate(vec3(0, 0, 0.5))
+      self.camera.translate(vec3(0, 0, 0.2))
       glClearColor(0.1, 0.1, 0.1, 1)
 
     def update(self):
-      import pygame.locals as pgl
       RiftApp.update(self)
       pressed = pygame.key.get_pressed()
 
@@ -86,11 +85,11 @@ class RiftDemo(RiftApp):
 
     def render_scene(self):
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-      # apply the camera position
 
-      modelview = self.eyeview * self.camera.inverse()
+      # apply the camera position
+      cameraview = self.eyeview * self.camera 
       glMatrixMode(GL_MODELVIEW)
-      glLoadMatrixf(modelview.toList())
+      glLoadMatrixf(cameraview.inverse().toList())
 
       glMultMatrixf(self.camera.inverse().toList())
       draw_color_cube(self.cube_size)
