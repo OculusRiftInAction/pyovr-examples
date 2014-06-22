@@ -1,12 +1,10 @@
 import oculusvr as ovr
-import numpy as np
-import time
 import pygame
-from pygame.locals import *
 
 from OpenGL.GL import *
-from OpenGLContext.quaternion import Quaternion
+
 from oculusvr import ovrQuatToTuple
+from cgkit.cgtypes import mat4, vec3, quat
 
 class RiftApp():
   def __init__(self):
@@ -15,6 +13,7 @@ class RiftApp():
     self.frame = 0;
     self.hmdDesc = self.hmd.get_desc()
     # Workaround for a race condition bug in the SDK
+    import time
     time.sleep(0.1)
     self.hmd.start_sensor()
     self.fovPorts = (
@@ -50,6 +49,7 @@ class RiftApp():
     ovr.Hmd.shutdown()
 
   def create_window(self):
+    import pygame.locals as pgl
     import os
     os.environ['SDL_VIDEO_WINDOW_POS'] = "%d,%d" % (
       self.hmdDesc.WindowsPos.x,
@@ -60,13 +60,14 @@ class RiftApp():
         self.hmdDesc.Resolution.w,
         self.hmdDesc.Resolution.h
       ),
-      HWSURFACE | OPENGL | DOUBLEBUF | NOFRAME)
+      pgl.HWSURFACE | pgl.OPENGL | pgl.DOUBLEBUF | pgl.NOFRAME)
 
   def init_gl(self):
     self.fbo = glGenFramebuffers(2)
     self.color = glGenTextures(2)
     self.depth = glGenRenderbuffers(2)
 
+    import numpy as np
     for eye in range(0, 2):
       self.build_framebuffer(eye)
       tex_id = np.asscalar(self.color[eye])
@@ -84,7 +85,6 @@ class RiftApp():
       self.hmd.configure_rendering(rc, self.fovPorts)
     # Bug in the SDK leaves a program bound, so clear it
     glUseProgram(0)
-
 
   def build_framebuffer(self, eye):
     size = self.eyeTextures[eye].TextureSize
@@ -126,29 +126,24 @@ class RiftApp():
       glMatrixMode(GL_PROJECTION)
       glLoadMatrixf(self.projections[eye])
 
-      glMatrixMode(GL_MODELVIEW)
-      glLoadIdentity()
+      self.eyeview = mat4(1.0)
 
       # Apply the per-eye offset
       eyeOffset = ovr.ovrVec3ToTuple(
         self.eyeRenderDescs[eye].ViewAdjust)
-      glTranslate(eyeOffset[0], eyeOffset[1], eyeOffset[2])
+      self.eyeview.translate(eyeOffset)
 
       # Fetch the head pose
       pose = self.hmd.begin_eye_render(eye)
 
       # Apply the head orientation
-      q = ovrQuatToTuple(pose.Orientation);
-      orientation = Quaternion(q).inverse()
-      orientation = orientation.matrix()
-      glMultMatrixf(orientation)
+      rot = quat(ovrQuatToTuple(pose.Orientation));
+      rot = rot.inverse().toMat4()
+      self.eyeview = self.eyeview * rot
 
       # Apply the head position
-      position = ovr.ovrVec3ToTuple(pose.Position)
-      glTranslate(-position[0], -position[1], -position[2])
-
-      # apply the camera position
-      glMultMatrixf(self.modelview)
+      position = vec3(ovr.ovrVec3ToTuple(pose.Position))
+      self.eyeview.translate(position * -1.0)
 
       # Active the offscreen framebuffer and render the scene
       glBindFramebuffer(GL_FRAMEBUFFER, self.fbo[eye])
@@ -160,19 +155,29 @@ class RiftApp():
       self.hmd.end_eye_render(eye, self.eyeTextures[eye], pose)
     self.hmd.end_frame()
 
+  def update(self):
+    for event in pygame.event.get():
+      self.on_event(event)
+    return
+
+  def on_event(self, event):
+    import pygame.locals as pgl
+    if event.type == pgl.QUIT:
+      self.running = False
+      return True
+    if event.type == pgl.KEYUP and event.key == pgl.K_ESCAPE:
+      self.running = False
+      return True
+    return False
 
   def run(self):
     self.create_window()
     self.init_gl()
-    running = True
+    self.running = True
     start = ovr.Hmd.get_time_in_seconds()
     last = start
-    while running:
-      for event in pygame.event.get():
-        if event.type == QUIT:
-          running = False
-        if event.type == KEYUP and event.key == K_ESCAPE:
-          running = False
+    while self.running:
+      self.update()
       self.render_frame()
       pygame.display.flip()
       now = ovr.Hmd.get_time_in_seconds()
