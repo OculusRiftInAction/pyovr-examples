@@ -1,8 +1,5 @@
 #! /usr/bin/env python
-from OpenGL.GLU import gluLookAt
-
 from RiftApp import *
-import pygame
 
 def draw_color_cube(size=1.0):
     p = size / 2.0
@@ -50,22 +47,52 @@ def draw_color_cube(size=1.0):
 
 class RiftDemo(RiftApp):
     def __init__(self):
-        RiftApp.__init__(self)
-        self.cube_size = self.hmd.get_float(ovr.OVR_KEY_IPD, ovr.OVR_DEFAULT_IPD)
+      RiftApp.__init__(self)
+      self.cube_size = self.hmd.get_float(ovr.OVR_KEY_IPD, ovr.OVR_DEFAULT_IPD)
 
     def init_gl(self):
-        RiftApp.init_gl(self)
-        glEnable(GL_DEPTH_TEST)
-        gluLookAt(
-          0, 0, 0.5,
-          0, 0, 0,
-          0, 1, 0)
-        self.modelview = glGetFloatv(GL_MODELVIEW_MATRIX)
-        glClearColor(0.1, 0.1, 0.1, 1)
+      RiftApp.init_gl(self)
+      glEnable(GL_DEPTH_TEST)
+      self.camera = mat4(1.0)
+      self.camera.translate(vec3(0, 0, 0.2))
+      glClearColor(0.1, 0.1, 0.1, 1)
+
+    def update(self):
+      RiftApp.update(self)
+      pressed = pygame.key.get_pressed()
+
+      rotation = 0.0
+      if pressed[pgl.K_q]:
+          rotation = +1.0
+      if pressed[pgl.K_e]:
+          rotation = -1.0
+      self.camera = self.camera * mat4.rotation(rotation * 0.01, vec3(0, 1, 0))
+
+      # Modify direction vectors for key presses
+      translation = vec3()
+      if pressed[pgl.K_r]:
+          self.hmd.reset_sensor()
+      if pressed[pgl.K_w]:
+          translation.z = -1.0
+      elif pressed[pgl.K_s]:
+          translation.z = +1.0
+      if pressed[pgl.K_a]:
+          translation.x = -1.0
+      elif pressed[pgl.K_d]:
+          translation.x = +1.0
+      self.camera.translate(translation * 0.005)
+
 
     def render_scene(self):
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        draw_color_cube(self.cube_size)
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+      # apply the camera position
+      cameraview = self.eyeview * self.camera 
+      glMatrixMode(GL_MODELVIEW)
+      glLoadMatrixf(cameraview.inverse().toList())
+
+      glMultMatrixf(self.camera.inverse().toList())
+      draw_color_cube(self.cube_size)
 
 
 RiftDemo().run();
