@@ -136,7 +136,7 @@ class RiftApp():
       # so we have to multiply by -1 to get camera
       # coordinates
       eyeOffset = eyeOffset * -1.0
-      self.eyeview.translate(eyeOffset)
+      #self.eyeview.translate(eyeOffset)
 
       # Fetch the head pose
       pose = self.hmd.begin_eye_render(eye)
