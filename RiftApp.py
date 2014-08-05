@@ -129,6 +129,28 @@ class RiftApp():
 
       self.eyeview = mat4(1.0)
 
+      # Fetch the head pose
+      ovrPose = self.hmd.begin_eye_render(eye)
+
+      # Apply the head orientation
+      rot = ovrPose.Orientation
+      # Convert the OVR orientation (a quaternion
+      # structure) to a cgkit quaternion class, and
+      # from there to a mat4  Coordinates are camera
+      # coordinates
+      rot = quat(rot.toList())
+      rot = rot.toMat4()
+
+      # Apply the head position
+      pos = ovrPose.Position
+      # Convert the OVR position (a vector3 structure)
+      # to a cgcit vector3 class. Position is in camera /
+      # Rift coordinates
+      pos = vec3(pos.toList())
+      pos = mat4(1.0).translate(pos);
+      
+      pose = pos * rot
+
       # Apply the per-eye offset
       eyeOffset = self.eyeRenderDescs[eye].ViewAdjust
       eyeOffset = vec3(eyeOffset.toList())
@@ -136,30 +158,11 @@ class RiftApp():
       # so we have to multiply by -1 to get camera
       # coordinates
       eyeOffset = eyeOffset * -1.0
-      #self.eyeview.translate(eyeOffset)
+      eyeOffset = mat4(1.0).translate(eyeOffset);
 
-      # Fetch the head pose
-      pose = self.hmd.begin_eye_render(eye)
-
-      # Apply the head orientation
-      rot = pose.Orientation
-      # Convert the OVR orientation (a quaternion
-      # structure) to a cgkit quaternion class, and
-      # from there to a mat4  Coordinates are camera
-      # coordinates
-      rot = quat(rot.toList())
-      rot = rot.toMat4()
+      
       # apply it to the eyeview matrix
-      self.eyeview = self.eyeview * rot
-
-      # Apply the head position
-      pos = pose.Position
-      # Convert the OVR position (a vector3 structure)
-      # to a cgcit vector3 class. Position is in camera /
-      # Rift coordinates
-      pos = vec3(pos.toList())
-      # apply it to the eyeview matrix
-      self.eyeview.translate(pos)
+      self.eyeview = eyeOffset * pose;
 
       # The subclass is responsible for taking eyeview
       # and applying it to whatever camera or modelview
@@ -173,7 +176,7 @@ class RiftApp():
       self.render_scene()
       glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
-      self.hmd.end_eye_render(eye, self.eyeTextures[eye], pose)
+      self.hmd.end_eye_render(eye, self.eyeTextures[eye], ovrPose)
     self.hmd.end_frame()
 
   def update(self):
