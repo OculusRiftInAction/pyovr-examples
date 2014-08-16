@@ -5,17 +5,20 @@ import pygame.locals as pgl
 
 from OpenGL.GL import *
 from cgkit.cgtypes import mat4, vec3, quat
+from ctypes import *
+from oculusvr import ovrHmdDesc
 
 class RiftApp():
   def __init__(self):
     ovr.Hmd.initialize()
     self.hmd = ovr.Hmd()
+    
+    self.hmdDesc = self.hmd.hmd.contents # cast(self.hmd.hmd,POINTER(ovrHmdDesc)).contents
     self.frame = 0
-    self.hmdDesc = self.hmd.get_desc()
     # Workaround for a race condition bug in the SDK
     import time
     time.sleep(0.1)
-    self.hmd.start_sensor()
+    self.hmd.configure_tracking()
     self.fovPorts = (
       self.hmdDesc.DefaultEyeFov[0],
       self.hmdDesc.DefaultEyeFov[1]
@@ -30,7 +33,7 @@ class RiftApp():
       lambda pr:
         pr.toList(),
       projections)
-    self.eyeTextures = [ ovr.texture(), ovr.texture() ]
+    self.eyeTextures = [ ovr.ovrTexture(), ovr.ovrTexture() ]
     for eye in range(0, 2):
       size = self.hmd.get_fov_texture_size(
        eye, self.fovPorts[eye])
@@ -46,7 +49,6 @@ class RiftApp():
     glDeleteTextures(self.color)
     glDeleteRenderbuffers(2, self.depth)
 
-    self.hmd.stop_sensor()
     self.hmd.destroy()
     self.hmd = None
     ovr.Hmd.shutdown()
@@ -71,17 +73,14 @@ class RiftApp():
 
     for eye in range(0, 2):
       self.build_framebuffer(eye)
-      tex_id = np.asscalar(self.color[eye])
-      tex_id = ctypes.cast(tex_id,
-        ctypes.POINTER(ctypes.c_ulong))
-      self.eyeTextures[eye].TexId = tex_id
+      self.eyeTextures[eye].TexId = np.asscalar(self.color[eye])
 
     rc = ovr.ovrRenderAPIConfig()
     rc.API = ovr.ovrRenderAPI_OpenGL
     rc.RTSize = self.hmdDesc.Resolution
     rc.Multisample = 1
     for i in range(0, 8):
-      rc.PlatformData[i] = ctypes.cast(0, ctypes.POINTER(ctypes.c_ulong))
+      rc.PlatformData[i] = 0 #ctypes.cast(, ctypes.c_uint)
     self.eyeRenderDescs = \
       self.hmd.configure_rendering(rc, self.fovPorts)
     # Bug in the SDK leaves a program bound, so clear it
@@ -121,6 +120,8 @@ class RiftApp():
   def render_frame(self):
     self.frame += 1
     self.hmd.begin_frame(self.frame)
+    
+    poses = [ ovr.ovrPosef(), ovr.ovrPosef() ]
     for i in range(0, 2):
       eye = self.hmdDesc.EyeRenderOrder[i]
 
@@ -130,10 +131,10 @@ class RiftApp():
       self.eyeview = mat4(1.0)
 
       # Fetch the head pose
-      ovrPose = self.hmd.begin_eye_render(eye)
+      poses[eye] = self.hmd.get_eye_pose(eye)
 
       # Apply the head orientation
-      rot = ovrPose.Orientation
+      rot = poses[eye].Orientation
       # Convert the OVR orientation (a quaternion
       # structure) to a cgkit quaternion class, and
       # from there to a mat4  Coordinates are camera
@@ -142,12 +143,12 @@ class RiftApp():
       rot = rot.toMat4()
 
       # Apply the head position
-      pos = ovrPose.Position
+      pos = poses[eye].Position
       # Convert the OVR position (a vector3 structure)
       # to a cgcit vector3 class. Position is in camera /
       # Rift coordinates
       pos = vec3(pos.toList())
-      pos = mat4(1.0).translate(pos);
+      pos = mat4(1.0).translate(pos)
       
       pose = pos * rot
 
@@ -175,9 +176,8 @@ class RiftApp():
       glViewport(0, 0, size.w, size.h)
       self.render_scene()
       glBindFramebuffer(GL_FRAMEBUFFER, 0)
-
-      self.hmd.end_eye_render(eye, self.eyeTextures[eye], ovrPose)
-    self.hmd.end_frame()
+    self.hmd.end_frame(poses, self.eyeTextures)
+    glGetError()
 
   def update(self):
     for event in pygame.event.get():
@@ -201,7 +201,7 @@ class RiftApp():
     while self.running:
       self.update()
       self.render_frame()
-      pygame.display.flip()
+      #pygame.display.flip()
       now = ovr.Hmd.get_time_in_seconds()
       if (now - last > 10):
         interval = now - start
