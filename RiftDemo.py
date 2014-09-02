@@ -94,7 +94,7 @@ class RiftDemo(RiftApp):
     # Modify direction vectors for key presses
     translation = vec3()
     if pressed[pgl.K_r]:
-      self.hmd.reset_sensor()
+      self.hmd.recenter_pose()
     if pressed[pgl.K_w]:
       translation.z = -1.0
     elif pressed[pgl.K_s]:
