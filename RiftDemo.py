@@ -54,8 +54,8 @@ def draw_color_cube(size=1.0):
 class RiftDemo(RiftApp):
   def __init__(self):
     RiftApp.__init__(self)
-    self.cube_size = self.hmd.get_float(
-      ovr.OVR_KEY_IPD, ovr.OVR_DEFAULT_IPD)
+#    self.cube_size = self.hmd.get_float(
+#      ovr.OVR_KEY_IPD, ovr.OVR_DEFAULT_IPD)
     self.reset_camera()
     
   def reset_camera(self):
@@ -118,9 +118,7 @@ class RiftDemo(RiftApp):
     glLoadMatrixf(cameraview.inverse().toList())
 
     glMultMatrixf(self.camera.inverse().toList())
-    draw_color_cube(self.cube_size)
+    draw_color_cube(0.1) # self.cube_size)
 
 
 RiftDemo().run();
-
-

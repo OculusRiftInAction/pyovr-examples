@@ -1,24 +1,18 @@
 import oculusvr as ovr
 import numpy as np
 import pygame
-import pygame.locals as pgl
+from pygame.locals import *
 
 from OpenGL.GL import *
-from cgkit.cgtypes import mat4, vec3, quat
-from ctypes import *
-from oculusvr import ovrHmdDesc
+# from OpenGLContext.quaternion import Quaternion
+from oculusvr import ovrQuatToTuple
 
 class RiftApp():
   def __init__(self):
     ovr.Hmd.initialize()
     self.hmd = ovr.Hmd()
-    
-    self.hmdDesc = self.hmd.hmd.contents # cast(self.hmd.hmd,POINTER(ovrHmdDesc)).contents
-    self.frame = 0
-    # Workaround for a race condition bug in the SDK
-    import time
-    time.sleep(0.1)
-    self.hmd.configure_tracking()
+    self.hmdDesc = self.hmd.get_desc()
+    self.hmd.start_sensor()
     self.fovPorts = (
       self.hmdDesc.DefaultEyeFov[0],
       self.hmdDesc.DefaultEyeFov[1]
@@ -29,11 +23,8 @@ class RiftApp():
            fovPort, 0.01, 1000, True)),
       self.fovPorts
     )
-    self.projections = map(
-      lambda pr:
-        pr.toList(),
-      projections)
-    self.eyeTextures = [ ovr.ovrTexture(), ovr.ovrTexture() ]
+    self.projections = map(ovr.ovrMat4ToTuple, projections)
+    self.eyeTextures = [ ovr.texture(), ovr.texture() ]
     for eye in range(0, 2):
       size = self.hmd.get_fov_texture_size(
        eye, self.fovPorts[eye])
@@ -49,6 +40,7 @@ class RiftApp():
     glDeleteTextures(self.color)
     glDeleteRenderbuffers(2, self.depth)
 
+    self.hmd.stop_sensor()
     self.hmd.destroy()
     self.hmd = None
     ovr.Hmd.shutdown()
@@ -64,7 +56,7 @@ class RiftApp():
         self.hmdDesc.Resolution.w,
         self.hmdDesc.Resolution.h
       ),
-      pgl.HWSURFACE | pgl.OPENGL | pgl.DOUBLEBUF | pgl.NOFRAME)
+      HWSURFACE | OPENGL | DOUBLEBUF | NOFRAME)
 
   def init_gl(self):
     self.fbo = glGenFramebuffers(2)
@@ -73,18 +65,19 @@ class RiftApp():
 
     for eye in range(0, 2):
       self.build_framebuffer(eye)
-      self.eyeTextures[eye].TexId = np.asscalar(self.color[eye])
+      tex_id = np.asscalar(self.color[eye])
+      tex_id = ctypes.cast(tex_id,
+        ctypes.POINTER(ctypes.c_ulong))
+      self.eyeTextures[eye].TexId = tex_id
 
     rc = ovr.ovrRenderAPIConfig()
     rc.API = ovr.ovrRenderAPI_OpenGL
     rc.RTSize = self.hmdDesc.Resolution
     rc.Multisample = 1
     for i in range(0, 8):
-      rc.PlatformData[i] = 0 #ctypes.cast(, ctypes.c_uint)
+      rc.PlatformData[i] = ctypes.cast(0, ctypes.POINTER(ctypes.c_ulong))
     self.eyeRenderDescs = \
       self.hmd.configure_rendering(rc, self.fovPorts)
-    # Bug in the SDK leaves a program bound, so clear it
-    glUseProgram(0)
 
   def build_framebuffer(self, eye):
     size = self.eyeTextures[eye].TextureSize
@@ -92,23 +85,21 @@ class RiftApp():
     # Set up the color attachement texture
     glBindTexture(GL_TEXTURE_2D, self.color[eye])
     glTexParameteri(GL_TEXTURE_2D,
-      GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+      GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
       size.w, size.h, 0, GL_RGB,
-      GL_UNSIGNED_BYTE, None)
+      GL_UNSIGNED_BYTE, None);
     glBindTexture(GL_TEXTURE_2D, 0)
 
-    # Set up the depth attachment renderbuffer
     glBindRenderbuffer(GL_RENDERBUFFER, self.depth[eye])
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT,
       size.w, size.h)
     glBindRenderbuffer(GL_RENDERBUFFER, 0)
 
-    # Set up the framebuffer proper
     glBindFramebuffer(GL_FRAMEBUFFER, self.fbo[eye])
     glFramebufferTexture2D(GL_FRAMEBUFFER,
       GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-      self.color[eye], 0)
+      self.color[eye], 0);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER,
       GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
       self.depth[eye])
@@ -118,57 +109,36 @@ class RiftApp():
     glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
   def render_frame(self):
-    self.frame += 1
-    self.hmd.begin_frame(self.frame)
-    
-    poses = [ ovr.ovrPosef(), ovr.ovrPosef() ]
+    self.hmd.begin_frame()
     for i in range(0, 2):
-      eye = self.hmdDesc.EyeRenderOrder[i]
+      eye = self.hmdDesc.EyeRenderOrder[i];
 
       glMatrixMode(GL_PROJECTION)
       glLoadMatrixf(self.projections[eye])
 
-      self.eyeview = mat4(1.0)
-
-      # Fetch the head pose
-      poses[eye] = self.hmd.get_eye_pose(eye)
-
-      # Apply the head orientation
-      rot = poses[eye].Orientation
-      # Convert the OVR orientation (a quaternion
-      # structure) to a cgkit quaternion class, and
-      # from there to a mat4  Coordinates are camera
-      # coordinates
-      rot = quat(rot.toList())
-      rot = rot.toMat4()
-
-      # Apply the head position
-      pos = poses[eye].Position
-      # Convert the OVR position (a vector3 structure)
-      # to a cgcit vector3 class. Position is in camera /
-      # Rift coordinates
-      pos = vec3(pos.toList())
-      pos = mat4(1.0).translate(pos)
-      
-      pose = pos * rot
+      glMatrixMode(GL_MODELVIEW)
+      glLoadIdentity()
 
       # Apply the per-eye offset
-      eyeOffset = self.eyeRenderDescs[eye].ViewAdjust
-      eyeOffset = vec3(eyeOffset.toList())
-      # The viewdjust is in modelview coordinates,
-      # so we have to multiply by -1 to get camera
-      # coordinates
-      eyeOffset = eyeOffset * -1.0
-      eyeOffset = mat4(1.0).translate(eyeOffset);
+      eyeOffset = ovr.ovrVec3ToTuple(
+        self.eyeRenderDescs[eye].ViewAdjust)
+      glTranslate(eyeOffset[0], eyeOffset[1], eyeOffset[2])
 
-      
-      # apply it to the eyeview matrix
-      self.eyeview = eyeOffset * pose;
+      # Fetch the head pose
+      pose = self.hmd.begin_eye_render(eye)
 
-      # The subclass is responsible for taking eyeview
-      # and applying it to whatever camera or modelview
-      # coordinate system it uses before rendering the
-      # scene
+      # Apply the head orientation
+      q = ovrQuatToTuple(pose.Orientation);
+      orientation = Quaternion(q).inverse()
+      orientation = orientation.matrix()
+      glMultMatrixf(orientation)
+
+      # Apply the head position
+      position = ovr.ovrVec3ToTuple(pose.Position)
+      glTranslate(-position[0], -position[1], -position[2])
+
+      # apply the camera position
+      glMultMatrixf(self.modelview)
 
       # Active the offscreen framebuffer and render the scene
       glBindFramebuffer(GL_FRAMEBUFFER, self.fbo[eye])
@@ -176,37 +146,31 @@ class RiftApp():
       glViewport(0, 0, size.w, size.h)
       self.render_scene()
       glBindFramebuffer(GL_FRAMEBUFFER, 0)
-    self.hmd.end_frame(poses, self.eyeTextures)
-    glGetError()
 
-  def update(self):
-    for event in pygame.event.get():
-      self.on_event(event)
-
-  def on_event(self, event):
-    if event.type == pgl.QUIT:
-      self.running = False
-      return True
-    if event.type == pgl.KEYUP and event.key == pgl.K_ESCAPE:
-      self.running = False
-      return True
-    return False
+      self.hmd.end_eye_render(eye, self.eyeTextures[eye], pose)
+    self.hmd.end_frame()
 
   def run(self):
     self.create_window()
     self.init_gl()
-    self.running = True
+    running = True
+    frame = 0
     start = ovr.Hmd.get_time_in_seconds()
     last = start
-    while self.running:
-      self.update()
+    while running:
+      for event in pygame.event.get():
+        if event.type == QUIT:
+          running = False
+        if event.type == KEYUP and event.key == K_ESCAPE:
+          running = False
       self.render_frame()
-      #pygame.display.flip()
+      pygame.display.flip()
+      frame = frame + 1
       now = ovr.Hmd.get_time_in_seconds()
       if (now - last > 10):
         interval = now - start
-        fps = self.frame / interval
-        print "%f" % fps
+        fps = frame / interval
+        print("%f", fps)
         last = now
     self.close()
     pygame.quit()
