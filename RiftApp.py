@@ -6,7 +6,7 @@ import pygame.locals as pgl
 from OpenGL.GL import *
 from cgkit.cgtypes import mat4, vec3, quat
 from ctypes import *
-from oculusvr import ovrHmdDesc
+from oculusvr import Hmd, ovrGLTexture, ovrPosef, ovrVector3f
 
 class RiftApp():
   def __init__(self):
@@ -33,16 +33,18 @@ class RiftApp():
       lambda pr:
         pr.toList(),
       projections)
-    self.eyeTextures = [ ovr.ovrTexture(), ovr.ovrTexture() ]
+    self.eyeTextures = [ ovrGLTexture(), ovrGLTexture() ]
     for eye in range(0, 2):
       size = self.hmd.get_fov_texture_size(
        eye, self.fovPorts[eye])
       eyeTexture = self.eyeTextures[eye]
       eyeTexture.API = ovr.ovrRenderAPI_OpenGL
-      eyeTexture.TextureSize = size
-      eyeTexture.RenderViewport.Size = size
-      eyeTexture.RenderViewport.Pos.x = 0
-      eyeTexture.RenderViewport.Pos.y = 0
+      header = eyeTexture.Texture.Header;
+      header.TextureSize = size
+      vp = header.RenderViewport;
+      vp.Size = size
+      vp.Pos.x = 0
+      vp.Pos.y = 0
 
   def close(self):
     glDeleteFramebuffers(2, self.fbo)
@@ -65,6 +67,9 @@ class RiftApp():
         self.hmdDesc.Resolution.h
       ),
       pgl.HWSURFACE | pgl.OPENGL | pgl.DOUBLEBUF | pgl.NOFRAME)
+    window_info = pygame.display.get_wm_info()
+    window = c_void_p(window_info['window'])
+    ovr.ovrHmd_AttachToWindow(self.hmd.hmd, window, 0, 0)
 
   def init_gl(self):
     self.fbo = glGenFramebuffers(2)
@@ -73,21 +78,27 @@ class RiftApp():
 
     for eye in range(0, 2):
       self.build_framebuffer(eye)
-      self.eyeTextures[eye].TexId = np.asscalar(self.color[eye])
+      self.eyeTextures[eye].OGL.TexId = np.asscalar(self.color[eye])
 
     rc = ovr.ovrRenderAPIConfig()
-    rc.API = ovr.ovrRenderAPI_OpenGL
-    rc.RTSize = self.hmdDesc.Resolution
-    rc.Multisample = 1
+    header = rc.Header;
+    header.API = ovr.ovrRenderAPI_OpenGL
+    header.BackBufferSize = self.hmdDesc.Resolution
+    header.Multisample = 1
     for i in range(0, 8):
       rc.PlatformData[i] = 0 #ctypes.cast(, ctypes.c_uint)
     self.eyeRenderDescs = \
       self.hmd.configure_rendering(rc, self.fovPorts)
+
+    self.eyeOffsets = [ ovrVector3f(), ovrVector3f() ]
+    for eye in range(0, 2):
+      self.eyeOffsets[eye] = self.eyeRenderDescs[eye].HmdToEyeViewOffset
+      
     # Bug in the SDK leaves a program bound, so clear it
     glUseProgram(0)
 
   def build_framebuffer(self, eye):
-    size = self.eyeTextures[eye].TextureSize
+    size = self.eyeTextures[eye].Texture.Header.TextureSize
 
     # Set up the color attachement texture
     glBindTexture(GL_TEXTURE_2D, self.color[eye])
@@ -119,9 +130,11 @@ class RiftApp():
 
   def render_frame(self):
     self.frame += 1
+
+    # Fetch the head pose
+    poses = self.hmd.get_eye_poses(self.frame, self.eyeOffsets)
+
     self.hmd.begin_frame(self.frame)
-    
-    poses = [ ovr.ovrPosef(), ovr.ovrPosef() ]
     for i in range(0, 2):
       eye = self.hmdDesc.EyeRenderOrder[i]
 
@@ -130,8 +143,6 @@ class RiftApp():
 
       self.eyeview = mat4(1.0)
 
-      # Fetch the head pose
-      poses[eye] = self.hmd.get_eye_pose(eye)
 
       # Apply the head orientation
       rot = poses[eye].Orientation
@@ -152,18 +163,8 @@ class RiftApp():
       
       pose = pos * rot
 
-      # Apply the per-eye offset
-      eyeOffset = self.eyeRenderDescs[eye].ViewAdjust
-      eyeOffset = vec3(eyeOffset.toList())
-      # The viewdjust is in modelview coordinates,
-      # so we have to multiply by -1 to get camera
-      # coordinates
-      eyeOffset = eyeOffset * -1.0
-      eyeOffset = mat4(1.0).translate(eyeOffset);
-
-      
       # apply it to the eyeview matrix
-      self.eyeview = eyeOffset * pose;
+      self.eyeview = pose;
 
       # The subclass is responsible for taking eyeview
       # and applying it to whatever camera or modelview
@@ -172,7 +173,7 @@ class RiftApp():
 
       # Active the offscreen framebuffer and render the scene
       glBindFramebuffer(GL_FRAMEBUFFER, self.fbo[eye])
-      size = self.eyeTextures[eye].RenderViewport.Size
+      size = self.eyeTextures[eye].Texture.Header.RenderViewport.Size
       glViewport(0, 0, size.w, size.h)
       self.render_scene()
       glBindFramebuffer(GL_FRAMEBUFFER, 0)
